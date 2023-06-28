@@ -10,7 +10,6 @@ load_dotenv()
 check = os.getenv("NORDVPN_USERNAME")
 print(check)
 if os.getenv("ENVIRONMENT") == "prod":
-    print("prod")
     settings = initialize_vpn("Israel", '2PfHqdoH9frPgQzud8ZFR9wV', 'c8C98ZnDGX3dMCrdHoHGBFyD')  # starts nordvpn and stuff
     rotate_VPN(settings)  # actually connect to server
 try:
