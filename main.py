@@ -6,13 +6,13 @@ import requests as re  # pip install requests
 from dotenv import load_dotenv  # pip install python-dotenv
 from sqlalchemy import create_engine
 
-
-
 load_dotenv()
 check = os.getenv("NORDVPN_USERNAME")
 print(check)
-settings = initialize_vpn("Israel", '2PfHqdoH9frPgQzud8ZFR9wV',  'c8C98ZnDGX3dMCrdHoHGBFyD')  # starts nordvpn and stuff
-rotate_VPN(settings)  # actually connect to server
+if os.getenv("ENVIRONMENT") == "prod":
+    print("prod")
+    settings = initialize_vpn("Israel", '2PfHqdoH9frPgQzud8ZFR9wV', 'c8C98ZnDGX3dMCrdHoHGBFyD')  # starts nordvpn and stuff
+    rotate_VPN(settings)  # actually connect to server
 try:
     s = re.session()
     print("1 - Before 1st http request")
@@ -61,7 +61,9 @@ try:
     new_df = pd.DataFrame.from_records(final)
 
     try:
-        engine = create_engine('mysql+pymysql://'+os.getenv("DB_USERNAME")+':'+os.getenv("DB_PASSWORD")+'@'+os.getenv("DB_HOSTNAME")+'/' + os.getenv("DB_DATABASE_NAME"))
+        engine = create_engine(
+            'mysql+pymysql://' + os.getenv("DB_USERNAME") + ':' + os.getenv("DB_PASSWORD") + '@' + os.getenv(
+                "DB_HOSTNAME") + '/' + os.getenv("DB_DATABASE_NAME"))
         new_df.to_sql(os.getenv("DB_TABLE_NAME"), engine, if_exists='append', index=False)
     except Exception as exc:
         log_filename = datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + "_log.txt"
@@ -78,4 +80,5 @@ try:
 except Exception as e:
     print(e)
 finally:
-    close_vpn_connection(settings)
+    if os.getenv("ENVIRONMENT") == "prod":
+        close_vpn_connection(settings)
