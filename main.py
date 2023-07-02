@@ -89,7 +89,7 @@ try:
                     'level': 2
                 }
                 write_to_log(log_data)
-                attempt+=1
+                attempt += 1
             time.sleep(3)
         except Exception as e:
             log_data = {
@@ -208,7 +208,8 @@ try:
                 'level': 3
             }
             write_to_log(log_data)
-            attempt+=1
+            attempt += 1
+            terminate_script(1)
 
     if attempt == 3:
         raise Exception('Failed to write the data to DB')
