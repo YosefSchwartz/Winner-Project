@@ -1,172 +1,108 @@
-from datetime import datetime
-import os
 import time
-import pandas as pd  # pip install pandas
-from nordvpn_connect import initialize_vpn, rotate_VPN, close_vpn_connection
-import requests as re  # pip install requests
-from dotenv import load_dotenv  # pip install python-dotenv
-import mysql.connector
+import traceback
+
+import pymysql
+import requests
+from datetime import datetime
+import pandas as pd
 from sqlalchemy import create_engine
-engine = create_engine('sqlite://', echo=False)
+import os
+from dotenv import load_dotenv  # pip install python-dotenv
+from nordvpn_connect import initialize_vpn, rotate_VPN, close_vpn_connection
 
 load_dotenv()
-current_time = datetime.now()
-formatted_time = current_time.strftime('%Y-%m-%d %H:%M')
-
-mydb = mysql.connector.connect(
-    host=os.getenv("DB_HOSTNAME"),
-    user=os.getenv("DB_USERNAME"),
-    password=os.getenv("DB_PASSWORD"),
-    database=os.getenv("DB_DATABASE_NAME")
-)
-cursor = mydb.cursor()
-
-insert_log_row = ("INSERT INTO logs "
-                  "(title, description, level) "
-                  "VALUES (%(title)s, %(description)s, %(level)s)")
 
 
-def write_to_log(log_data):
-    """
-    Get object that MUST contain
-    title - VARCHAR(150)
-    description - TEXT - up to 65,535 characters
-    level - INT - 1 (normal) to 5 (severe)
+# Function to insert a log record into the database
+def insert_log_record(timestamp, level, title, description):
+    insert_query = '''
+        INSERT INTO `logs` (timestamp, level, title, description) VALUES (%s, %s, %s, %s)
+    '''
 
-    :param log_data:
-    :return:
-    """
-    cursor.execute(insert_log_row, log_data)
-    mydb.commit()
+    db_cursor.execute(insert_query, (timestamp, level, title, description))
+    db_connection.commit()
+    time.sleep(1)
 
 
-def terminate_script(exit_status):
-    cursor.close()
-    mydb.close()
-    if os.getenv("ENVIRONMENT") == "prod":
-        close_vpn_connection(settings)
-    exit(exit_status)
-
-
-COUNTER_ATTEMPTS = 0
-MAX_ATTEMPTS = 0
-
-log_data = {
-    'title': "Start Script",
-    'description': f"Winner scraper -- Start",
-    'level': 1
-}
-write_to_log(log_data)
-
-# Connect VPN
 if os.getenv("ENVIRONMENT") == "prod":
     settings = initialize_vpn("Israel", '2PfHqdoH9frPgQzud8ZFR9wV', 'c8C98ZnDGX3dMCrdHoHGBFyD')  # starts nordvpn and stuff
     rotate_VPN(settings)  # actually connect to server
+
+# Configure database connection
+db_username = os.getenv("DB_USERNAME")
+db_password = os.getenv("DB_PASSWORD")
+db_hostname = os.getenv("DB_HOSTNAME")
+db_database_name = os.getenv("DB_DATABASE_NAME")
+db_table_name = os.getenv("DB_TABLE_NAME")
+
 try:
-    s = re.session()
-    attempt = 0
-    while attempt < 3:
-        try:
-            log_data = {
-                'title': "First call",
-                'description': f"Execute the first call #{attempt}",
-                'level': 1
-            }
-            write_to_log(log_data)
+    db_connection = pymysql.connect(host=db_hostname, user=db_username, password=db_password, database=db_database_name)
+    db_cursor = db_connection.cursor()
 
-            checksum_call = s.get('https://api.winner.co.il/v2/publicapi/GetCMobileHashes',
-                                  headers={
-                                      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36',
-                                      'deviceid': '50dd938f151692ef21448500f9d2b5a3',
-                                      'requestid': '88df46aae697b62054ba2e08bdfb5db0'
-                                  })
-            if (checksum_call.status_code < 300):
-                break
-            else:
-                log_data = {
-                    'title': "First call",
-                    'description': f"Got status code {checksum_call.status_code}",
-                    'level': 2
-                }
-                write_to_log(log_data)
-                attempt += 1
-            time.sleep(3)
-        except Exception as e:
-            log_data = {
-                'title': "First call",
-                'description': f"Execution of the first call failed",
-                'level': 3
-            }
-            write_to_log(log_data)
+    # Perform HTTP request to GetCMobileHashes API
+    hashes_url = 'https://api.winner.co.il/v2/publicapi/GetCMobileHashes'
+    hashes_headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36',
+        'deviceid': '50dd938f151692ef21448500f9d2b5a3',
+        'requestid': '88df46aae697b62054ba2e08bdfb5db0'
+    }
 
-            log_data = {
-                'title': "First call",
-                'description': f"Error: {e}",
-                'level': 3
-            }
-            write_to_log(log_data)
-            terminate_script(1)
+    hashes_attempts = 0
+    hashes_max_attempts = 3
 
-    if attempt == 3:
-        raise Exception('Failed to make the first call')
-    checksum_obj = checksum_call.json()
+    while hashes_attempts < hashes_max_attempts:
+        hashes_response = requests.get(hashes_url, headers=hashes_headers)
+        if hashes_response.status_code < 300:
+            break
+        insert_log_record(datetime.now(), 'warning', 'GetCMobileHashes',
+                          'Failed to get hashes - Status Code: ' + str(hashes_response.status_code))
+        hashes_attempts += 1
 
-    attempt = 0
-    while attempt < 3:
-        try:
-            log_data = {
-                'title': "Second call",
-                'description': f"Execute the second call #{attempt}",
-                'level': 1
-            }
-            write_to_log(log_data)
+    if hashes_response.status_code >= 300:
+        insert_log_record(datetime.now(), 'error', 'GetCMobileHashes',
+                          'Failed to get hashes - Status Code: ' + str(hashes_response.status_code))
+        raise Exception('Failed to retrieve the first HTTP call')
+    else:
+        insert_log_record(datetime.now(), 'info', 'GetCMobileHashes', 'Hashes retrieved successfully.')
 
-            data_call = s.get(
-                'https://api.winner.co.il/v2/publicapi/GetCMobileLine?lineChecksum=' + checksum_obj['lineChecksum'],
-                headers={
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36'
-                })
-            if (data_call.status_code < 300):
-                break
-            else:
-                log_data = {
-                    'title': "Second call",
-                    'description': f"Got status code {data_call.status_code}",
-                    'level': 2
-                }
-                write_to_log(log_data)
-                attempt += 1
-            time.sleep(3)
+    # Perform HTTP request to GetCMobileLine API
+    checksum = hashes_response.json()['lineChecksum']
+    line_url = 'https://api.winner.co.il/v2/publicapi/GetCMobileLine?lineChecksum=' + checksum
+    line_headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36'
+    }
 
-        except Exception as e:
-            log_data = {
-                'title': "Second call",
-                'description': f"Execution of the second call failed",
-                'level': 3
-            }
-            write_to_log(log_data)
+    line_attempts = 0
+    line_max_attempts = 3
 
-            log_data = {
-                'title': "Second call",
-                'description': f"Error: {e}",
-                'level': 3
-            }
-            write_to_log(log_data)
-            terminate_script(1)
+    while line_attempts < line_max_attempts:
+        line_response = requests.get(line_url, headers=line_headers)
+        if line_response.status_code < 300:
+            break
+        insert_log_record(datetime.now(), 'warning', 'GetCMobileLine',
+                          'Failed to get line data - Status Code: ' + line_response.status_code)
+        line_attempts += 1
 
-    if attempt == 3:
-        raise Exception('Failed to make the second call')
+    if line_response.status_code >= 300:
+        insert_log_record(datetime.now(), 'error', 'GetCMobileLine',
+                          'Failed to get line data - Status Code: ' + line_response.status_code)
+        raise Exception('Failed to retrieve the second HTTP call')
+    else:
+        insert_log_record(datetime.now(), 'info', 'GetCMobileLine', 'Line data retrieved successfully.')
 
-    data = data_call.json()
+    # Manipulate the data
+    data = line_response.json()
     data = data['markets']
-    # filter the relevant data
-
     data = list(filter(lambda row: row['sId'] == 240, data))
     data = list(filter(lambda row: len(row['outcomes']) == 3, data))
 
+    # Create the table
     final = []
+    now = datetime.now()
+    date_time = now.strftime("%Y-%m-%d %H:%M:%S")
+
     for idx, row in enumerate(data):
-        row['timestamp'] = formatted_time
+        row['timestamp'] = date_time
         row['home_desc'] = row['outcomes'][0]['desc']
         row['home_rate'] = row['outcomes'][0]['price']
         row['draw_desc'] = row['outcomes'][1]['desc']
@@ -177,50 +113,18 @@ try:
         del (row['players'])
         final.append(row)
 
-    # Create a new DataFrame
+    insert_log_record(datetime.now(), 'info', 'DataManipulation', 'Data manipulation completed successfully.')
+
+    # Write to the database
     new_df = pd.DataFrame.from_records(final)
 
-    attempt = 0
-    while attempt < 3:
-        try:
-            log_data = {
-                'title': "Write data to DB",
-                'description': f"Try to write the whole data to DB #{attempt}",
-                'level': 1
-            }
-            write_to_log(log_data)
+    engine = create_engine(
+        'mysql+pymysql://' + db_username + ':' + db_password + '@' + db_hostname + '/' + db_database_name)
+    new_df.to_sql(db_table_name, engine, if_exists='append', index=False)
+    insert_log_record(datetime.now(), 'info', 'DataWriting', 'Data written to the database successfully.')
 
-            engine = create_engine(
-                    'mysql+pymysql://' + os.getenv("DB_USERNAME") + ':' + os.getenv("DB_PASSWORD") + '@' + os.getenv(
-                        "DB_HOSTNAME") + '/' + os.getenv("DB_DATABASE_NAME"))
-            new_df.to_sql(os.getenv("DB_TABLE_NAME"), engine, if_exists='append', index=False)
-            break
-        except Exception as e:
-            log_data = {
-                'title': "Write data to DB",
-                'description': f"Failed to write the data to DB",
-                'level': 3
-            }
-            write_to_log(log_data)
-            log_data = {
-                'title': "Write data to DB",
-                'description': f"Error: {e}",
-                'level': 3
-            }
-            write_to_log(log_data)
-            attempt += 1
-            terminate_script(1)
-
-    if attempt == 3:
-        raise Exception('Failed to write the data to DB')
-
-    terminate_script(0)
-except Exception as e:
-    log_data = {
-        'title': "Got an exception",
-        'description': f"Error: {e}",
-        'level': 3
-    }
-    write_to_log(log_data)
-    terminate_script(1)
-
+except Exception as exc:
+    insert_log_record(datetime.now(), 'error', 'General error', f'Exception details: {exc} \nTraceback: {traceback.format_exc()}')
+finally:
+    if os.getenv("ENVIRONMENT") == "prod":
+        close_vpn_connection(settings)
