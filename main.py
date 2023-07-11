@@ -80,12 +80,12 @@ try:
         if line_response.status_code < 300:
             break
         insert_log_record(datetime.now(), 'warning', 'GetCMobileLine',
-                          'Failed to get line data - Status Code: ' + line_response.status_code)
+                          'Failed to get line data - Status Code: ' + str(line_response.status_code))
         line_attempts += 1
 
     if line_response.status_code >= 300:
         insert_log_record(datetime.now(), 'error', 'GetCMobileLine',
-                          'Failed to get line data - Status Code: ' + line_response.status_code)
+                          'Failed to get line data - Status Code: ' + str(line_response.status_code))
         raise Exception('Failed to retrieve the second HTTP call')
     else:
         insert_log_record(datetime.now(), 'info', 'GetCMobileLine', 'Line data retrieved successfully.')
