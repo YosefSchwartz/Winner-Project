@@ -1,48 +1,106 @@
+import time
+import traceback
+
+import pymysql
+import requests
 from datetime import datetime
-import os
-import pandas as pd  # pip install pandas
-from nordvpn_connect import initialize_vpn, rotate_VPN, close_vpn_connection
-import requests as re  # pip install requests
-from dotenv import load_dotenv  # pip install python-dotenv
+import pandas as pd
 from sqlalchemy import create_engine
+import os
+from dotenv import load_dotenv  # pip install python-dotenv
+from nordvpn_connect import initialize_vpn, rotate_VPN, close_vpn_connection
 
 load_dotenv()
-check = os.getenv("NORDVPN_USERNAME")
-print(check)
+
+
+# Function to insert a log record into the database
+def insert_log_record(timestamp, level, title, description):
+    insert_query = '''
+        INSERT INTO `logs` (timestamp, level, title, description) VALUES (%s, %s, %s, %s)
+    '''
+
+    db_cursor.execute(insert_query, (timestamp, level, title, description))
+    db_connection.commit()
+    time.sleep(1)
+
+
 if os.getenv("ENVIRONMENT") == "prod":
     settings = initialize_vpn("Israel", '2PfHqdoH9frPgQzud8ZFR9wV', 'c8C98ZnDGX3dMCrdHoHGBFyD')  # starts nordvpn and stuff
     rotate_VPN(settings)  # actually connect to server
+
+# Configure database connection
+db_username = os.getenv("DB_USERNAME")
+db_password = os.getenv("DB_PASSWORD")
+db_hostname = os.getenv("DB_HOSTNAME")
+db_database_name = os.getenv("DB_DATABASE_NAME")
+db_table_name = os.getenv("DB_TABLE_NAME")
+
 try:
-    s = re.session()
-    print("1 - Before 1st http request")
-    checksum_response = s.get('https://api.winner.co.il/v2/publicapi/GetCMobileHashes',
-                              headers={
-                                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36',
-                                  'deviceid': '50dd938f151692ef21448500f9d2b5a3',
-                                  'requestid': '88df46aae697b62054ba2e08bdfb5db0'
-                              })
+    db_connection = pymysql.connect(host=db_hostname, user=db_username, password=db_password, database=db_database_name)
+    db_cursor = db_connection.cursor()
 
-    print("2 - After 1st request, res: ", checksum_response)
-    checksum_obj = checksum_response.json()
-    print("3 - Before 2st http request")
-    data = s.get('https://api.winner.co.il/v2/publicapi/GetCMobileLine?lineChecksum=' + checksum_obj['lineChecksum'],
-                 headers={
-                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36'
+    # Perform HTTP request to GetCMobileHashes API
+    hashes_url = 'https://api.winner.co.il/v2/publicapi/GetCMobileHashes'
+    hashes_headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36',
+        'deviceid': '50dd938f151692ef21448500f9d2b5a3',
+        'requestid': '88df46aae697b62054ba2e08bdfb5db0'
+    }
 
-                 })
-    print("4 - After 2st request, res: ", data)
-    data = data.json()
+    hashes_attempts = 0
+    hashes_max_attempts = 3
+
+    while hashes_attempts < hashes_max_attempts:
+        hashes_response = requests.get(hashes_url, headers=hashes_headers)
+        if hashes_response.status_code < 300:
+            break
+        insert_log_record(datetime.now(), 'warning', 'GetCMobileHashes',
+                          'Failed to get hashes - Status Code: ' + str(hashes_response.status_code))
+        hashes_attempts += 1
+
+    if hashes_response.status_code >= 300:
+        insert_log_record(datetime.now(), 'error', 'GetCMobileHashes',
+                          'Failed to get hashes - Status Code: ' + str(hashes_response.status_code))
+        raise Exception('Failed to retrieve the first HTTP call')
+    else:
+        insert_log_record(datetime.now(), 'info', 'GetCMobileHashes', 'Hashes retrieved successfully.')
+
+    # Perform HTTP request to GetCMobileLine API
+    checksum = hashes_response.json()['lineChecksum']
+    line_url = 'https://api.winner.co.il/v2/publicapi/GetCMobileLine?lineChecksum=' + checksum
+    line_headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36'
+    }
+
+    line_attempts = 0
+    line_max_attempts = 3
+
+    while line_attempts < line_max_attempts:
+        line_response = requests.get(line_url, headers=line_headers)
+        if line_response.status_code < 300:
+            break
+        insert_log_record(datetime.now(), 'warning', 'GetCMobileLine',
+                          'Failed to get line data - Status Code: ' + line_response.status_code)
+        line_attempts += 1
+
+    if line_response.status_code >= 300:
+        insert_log_record(datetime.now(), 'error', 'GetCMobileLine',
+                          'Failed to get line data - Status Code: ' + line_response.status_code)
+        raise Exception('Failed to retrieve the second HTTP call')
+    else:
+        insert_log_record(datetime.now(), 'info', 'GetCMobileLine', 'Line data retrieved successfully.')
+
+    # Manipulate the data
+    data = line_response.json()
     data = data['markets']
-    # filter the relevant data
-    # data = list(filter(lambda row: "תוצאת סיום" in row['mp'] and "1X2" in row['mp'], data))
     data = list(filter(lambda row: row['sId'] == 240, data))
     data = list(filter(lambda row: len(row['outcomes']) == 3, data))
-    print("5 - After filters")
+
+    # Create the table
     final = []
-    # Get the current date and time
     now = datetime.now()
-    # Format the date and time as a string
     date_time = now.strftime("%Y-%m-%d %H:%M:%S")
+
     for idx, row in enumerate(data):
         row['timestamp'] = date_time
         row['home_desc'] = row['outcomes'][0]['desc']
@@ -55,29 +113,18 @@ try:
         del (row['players'])
         final.append(row)
 
-    print("6 - After build the result array")
-    # Create a new DataFrame
+    insert_log_record(datetime.now(), 'info', 'DataManipulation', 'Data manipulation completed successfully.')
+
+    # Write to the database
     new_df = pd.DataFrame.from_records(final)
 
-    try:
-        engine = create_engine(
-            'mysql+pymysql://' + os.getenv("DB_USERNAME") + ':' + os.getenv("DB_PASSWORD") + '@' + os.getenv(
-                "DB_HOSTNAME") + '/' + os.getenv("DB_DATABASE_NAME"))
-        new_df.to_sql(os.getenv("DB_TABLE_NAME"), engine, if_exists='append', index=False)
-    except Exception as exc:
-        log_filename = datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + "_log.txt"
+    engine = create_engine(
+        'mysql+pymysql://' + db_username + ':' + db_password + '@' + db_hostname + '/' + db_database_name)
+    new_df.to_sql(db_table_name, engine, if_exists='append', index=False)
+    insert_log_record(datetime.now(), 'info', 'DataWriting', 'Data written to the database successfully.')
 
-        # Open the log file in write mode
-        with open(log_filename, "w") as file:
-            # Write the exception details to the file
-            file.write("An exception occurred: {}\n".format(str(exc)))
-            file.write("Traceback:\n")
-            import traceback
-
-            traceback.print_exc(file=file)
-
-except Exception as e:
-    print(e)
+except Exception as exc:
+    insert_log_record(datetime.now(), 'error', 'General error', f'Exception details: {exc} \nTraceback: {traceback.format_exc()}')
 finally:
     if os.getenv("ENVIRONMENT") == "prod":
         close_vpn_connection(settings)
