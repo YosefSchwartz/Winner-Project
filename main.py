@@ -57,6 +57,9 @@ try:
         insert_log_record(datetime.now(), 'warning', 'GetCMobileHashes',
                           'Failed to get hashes - Status Code: ' + str(hashes_response.status_code))
         hashes_attempts += 1
+        time.sleep(hashes_attempts * 5)
+        insert_log_record(datetime.now(), 'info', 'GetCMobileHashes',
+                          'Sleeping for ' + str(hashes_attempts * 5) + ' seconds')
 
     if hashes_response.status_code >= 300:
         insert_log_record(datetime.now(), 'error', 'GetCMobileHashes',
@@ -82,6 +85,10 @@ try:
         insert_log_record(datetime.now(), 'warning', 'GetCMobileLine',
                           'Failed to get line data - Status Code: ' + str(line_response.status_code))
         line_attempts += 1
+        time.sleep(line_attempts * 5)
+        insert_log_record(datetime.now(), 'info', 'GetCMobileLine',
+                          'Sleeping for ' + str(line_attempts * 5) + ' seconds')
+
 
     if line_response.status_code >= 300:
         insert_log_record(datetime.now(), 'error', 'GetCMobileLine',
