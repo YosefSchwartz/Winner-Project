@@ -103,6 +103,11 @@ try:
     data = list(filter(lambda row: row['sId'] == 240, data))
     data = list(filter(lambda row: len(row['outcomes']) == 3, data))
 
+    # Extracting specified columns from each dictionary
+    cols = ['mid','eid','sid','lid','type','count','desc','mp','league','country','cop','sop','lop','mop','m_hour','e_date','brid','mstrem','outcomes']
+    data = [dict((key.lower(), value) for key, value in entry.items()) for entry in data]
+    data = [{col: entry[col] for col in cols} for entry in data]
+
     # Create the table
     final = []
     now = datetime.now()
@@ -117,7 +122,6 @@ try:
         row['away_desc'] = row['outcomes'][2]['desc']
         row['away_rate'] = row['outcomes'][2]['price']
         del (row['outcomes'])
-        del (row['players'])
         final.append(row)
 
     insert_log_record(datetime.now(), 'info', 'DataManipulation', 'Data manipulation completed successfully.')
