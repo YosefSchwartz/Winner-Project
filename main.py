@@ -100,13 +100,8 @@ try:
     # Manipulate the data
     data = line_response.json()
     data = data['markets']
-    data = list(filter(lambda row: row['sId'] == 240, data))
-    data = list(filter(lambda row: len(row['outcomes']) == 3, data))
+    data = list(filter(lambda row: row['sId'] == 240 and len(row['outcomes']) and row['mp'] == "הימור יתרון - תוצאת סיום (ללא הארכות)", data))
 
-    # Extracting specified columns from each dictionary
-    cols = ['mid','eid','sid','lid','type','count','desc','mp','league','country','cop','sop','lop','mop','m_hour','e_date','brid','mstrem','outcomes']
-    data = [dict((key.lower(), value) for key, value in entry.items()) for entry in data]
-    data = [{col: entry[col] for col in cols} for entry in data]
 
     # Create the table
     final = []
@@ -114,15 +109,24 @@ try:
     date_time = now.strftime("%Y-%m-%d %H:%M:%S")
 
     for idx, row in enumerate(data):
-        row['timestamp'] = date_time
-        row['home_desc'] = row['outcomes'][0]['desc']
-        row['home_rate'] = row['outcomes'][0]['price']
-        row['draw_desc'] = row['outcomes'][1]['desc']
-        row['draw_rate'] = row['outcomes'][1]['price']
-        row['away_desc'] = row['outcomes'][2]['desc']
-        row['away_rate'] = row['outcomes'][2]['price']
-        del (row['outcomes'])
-        final.append(row)
+        new_row = {}
+        new_row["match_id"] = row['mId']
+        new_row["event_id"] = row['eId']
+        new_row["country"] = row['country']
+        new_row["league_id"] = row['lid']
+        new_row["league_name"] = row['league']
+        time_obj = datetime.strptime(str(row['m_hour']), "%H%M")
+        date_obj = datetime.strptime(str(row['e_date']), "%y%m%d")
+        new_row["match_datetime"] = str(date_obj.replace(hour=time_obj.hour, minute=time_obj.minute, second=0))
+        new_row["home_team"] = row['outcomes'][0]['desc']
+        new_row["home_rate"] = row['outcomes'][0]['price']
+        new_row["draw"] = row['outcomes'][1]['desc']
+        new_row["draw_rate"] = row['outcomes'][1]['price']
+        new_row["away_team"] = row['outcomes'][2]['desc']
+        new_row["away_rate"] = row['outcomes'][2]['price']
+        new_row["time_sample"] = date_time
+
+        final.append(new_row)
 
     insert_log_record(datetime.now(), 'info', 'DataManipulation', 'Data manipulation completed successfully.')
 
