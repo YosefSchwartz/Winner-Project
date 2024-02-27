@@ -100,7 +100,7 @@ try:
     # Manipulate the data
     data = line_response.json()
     data = data['markets']
-    data = list(filter(lambda row: row['sId'] == 240 and len(row['outcomes']) and row['mp'] == "הימור יתרון - תוצאת סיום (ללא הארכות)", data))
+    data = list(filter(lambda row: row['sId'] == 240 and len(row['outcomes']) == 3 and row['mp'] == "‮1X2‬ - תוצאת סיום (ללא הארכות)", data))
 
 
     # Create the table
