@@ -95,9 +95,11 @@ try:
         if 'scoreB' in row:
             new_row["away_score"] = int(row['scoreB'])
         market = list(filter(lambda market : market['title'] == '‮1X2‬ תוצאת סיום (ללא הארכות)',row['markets']))
-        if(len(market) > 0):
-            new_row["market_result"] = market[0]['marketResults'][0]
-
+        if len(market) > 0:
+            try:
+                new_row["market_result"] = market[0]['marketResults'][0]
+            except Exception as e:
+                insert_log_record(datetime.now(), 'Error', 'Result market', 'Exception: ' + str(e) + ' Row: ' + str(row))
         final.append(new_row)
 
     insert_log_record(datetime.now(), 'info', 'ResultsManipulation', 'Results manipulation completed successfully.')
